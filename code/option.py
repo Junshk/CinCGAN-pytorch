@@ -25,7 +25,7 @@ parser.add_argument('--data_train', type=str, default='DIV2K',
                     help='train dataset name')
 parser.add_argument('--data_test', type=str, default='DIV2K',
                     help='test dataset name')
-parser.add_argument('--n_train', type=int, default=400,
+parser.add_argument('--n_train', type=int, default=300,
                     help='number of training set')
 parser.add_argument('--n_val', type=int, default=10,
                     help='number of validation set')
@@ -92,7 +92,7 @@ parser.add_argument('--self_ensemble', action='store_true',
 # Optimization specifications
 parser.add_argument('--lr', type=float, default=2e-4,
                     help='learning rate')
-parser.add_argument('--lr_decay', type=int, default=80,
+parser.add_argument('--lr_decay', type=int, default=100,
                     help='learning rate decay per N epochs')
 parser.add_argument('--decay_type', type=str, default='step',
                     help='learning rate decay type')

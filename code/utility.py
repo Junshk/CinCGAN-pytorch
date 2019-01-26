@@ -130,6 +130,23 @@ def quantize(img, rgb_range):
     pixel_range = 255 / rgb_range
     return img.mul(pixel_range).clamp(0, 255).round().div(pixel_range)
 
+def calc_psnr_pixsh(sr, hr, scale, rgb_range, benchmark=True):
+    psnr = 0
+    # diff = (sr - hr).data.div(rgb_range)
+    sr.data.div(rgb_range)
+    hr.data.div(rgb_range)
+    
+    shave = scale + 6
+    sr = sr[:, :, shave:-shave, shave:-shave]
+    for i in range(2*shave-1):
+        for j in range(2*shave-1):
+            valid = (sr-hr[:, :, i:-2*shave+i, j:-2*shave+j])
+            mse = valid.pow(2).mean()
+            if psnr < -10 * math.log10(mse):
+                psnr = -10* math.log10(mse)
+
+
+    return psnr
 def calc_psnr(sr, hr, scale, rgb_range, benchmark=False):
     diff = (sr - hr).data.div(rgb_range)
     if benchmark:
