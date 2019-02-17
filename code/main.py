@@ -71,12 +71,12 @@ def main():
     test_data_loader = loader.loader_test
 
     print("===> Building model")
-    GLR = _NetG_DOWN(stride=2)#EDSR(args)
-    GHR = EDSR(args)#_NetG_UP()#Generator(G_input_dim, num_filters, G_output_dim)
-    GDN = _NetG_DOWN(stride=1)#EDSR(args)
-    DLR =_NetD(stride=1)# True)# _NetD(3)#Generator(G_input_dim, num_filters, G_output_dim)
-    DHR = _NetD(stride=2)#Generator(G_input_dim, num_filters, G_output_dim)
-    GNO = _NetG_DOWN(stride=1)#EDSR(args)
+    GLR = _NetG_DOWN(stride=2)
+    GHR = EDSR(args)
+    GDN = _NetG_DOWN(stride=1)
+    DLR =_NetD(stride=1)
+    DHR = _NetD(stride=2)
+    GNO = _NetG_DOWN(stride=1)
 
 
     Loaded = torch.load('../experiment/model/EDSR_baseline_x{}.pt'.format(scale))
@@ -91,6 +91,11 @@ def main():
     model.append(DHR)
     model.append(GNO) #
     
+    optG = torch.optim.Adam(list(model[0].parameters())+list(model[1].parameters())+ list(model[2].parameters())+list(model[5].parameters()), lr=opt.lr, weight_decay=0)
+    optD = torch.optim.Adam(list(model[3].parameters())+list(model[4].parameters()), lr=opt.lr, weight_decay=0)
+    
+    optimizer =  [optG, optD]
+
     print(model)
 
     cudnn.benchmark = True
@@ -102,9 +107,11 @@ def main():
             checkpoint = torch.load(opt.resume)
             opt.start_epoch = checkpoint["epoch"] + 1
             
+            optimizer = checkpoint['optimizer']
             model.load_state_dict(checkpoint["model"].state_dict())
         else:
             print("=> no checkpoint found at '{}'".format(opt.resume))
+            
     step = 2 if opt.start_epoch > opt.epochs else 1
             
 
@@ -120,44 +127,50 @@ def main():
         test(test_data_loader, model ,opt.start_epoch)
         return
 
-    print("===> Training Step 1.")
     if step == 1:
+        print("===> Training Step 1.")
         for epoch in range(opt.start_epoch, opt.epochs + 1):
-            train(training_data_loader, training_high_loader, model, epoch, False)
-            save_checkpoint(model, epoch, scale)
+            train(training_data_loader, training_high_loader, model, optimizer, epoch, False)
+            save_checkpoint(model, optimizer, epoch, scale)
             test(test_data_loader, model, epoch)
         torch.save(model.state_dict(),'backup.pt')
     elif step == 2:
         print("===> Training Step 2.")
         opt.lr = 1e-4
-        for epoch in range(opt.start_epoch-opt.epochs, opt.epochs + 1):
-            train(training_data_loader, training_high_loader, model, epoch, True)
-            save_checkpoint(model, epoch, scale)
+        for epoch in range(opt.start_epoch + 1, opt.epochs*2 + 1):
+            train(training_data_loader, training_high_loader, model, optimizer, epoch, True)
+            save_checkpoint(model, optimizer, epoch, scale)
             test(test_data_loader, model, epoch)
 
 def adjust_learning_rate(epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 10 epochs"""
-    lr = opt.lr * (opt.gamma ** (epoch // opt.lr_decay))
+    lr = opt.lr * (opt.gamma ** ((epoch%opt.epochs) // opt.lr_decay))
     return lr
-def train(training_data_loader, training_high_loader, model, epoch, joint=False):
+
+def train(training_data_loader, training_high_loader, model, optimizer, epoch, joint=False):
     
     lr = adjust_learning_rate(epoch)
     step_weight = 1 if joint else 0
-    '''
-        for param_group in optimizer.param_groups:
-        param_group["lr"] = lr
-    '''
     
+    optG, optD = optimizer
+
+    for param_group in optG.param_groups:
+        param_group["lr"] = lr
+    for param_group in optD.param_groups:
+        param_group["lr"] = lr
 
     print("Epoch = {}, lr = {}".format(epoch, lr))
 
     model.train()
-    optG = torch.optim.Adam(list(model[0].parameters())+list(model[1].parameters())+ list(model[2].parameters())+list(model[5].parameters()), lr=lr, weight_decay=0)
-    optD = torch.optim.Adam(list(model[3].parameters())+list(model[4].parameters()), lr=lr, weight_decay=0)
 
     for iteration, (batch0, batch1) in enumerate(zip(training_data_loader, training_high_loader)):
-        input, target, bicubic, input_v, target_v = batch1[0], batch1[1], batch1[2], batch0[0], batch0[1]
-            
+
+        input_v, target_v = batch0[0], batch0[1] # input domain dataset
+        input, target, bicubic = batch1[0], batch1[1], batch1[2] # target domain dataset
+
+        # we do not know target_v and input
+        # input : unknown input, target : high resolution image, bicubic : low resolution image downsampled by bicubic kernel
+
         y_real = torch.ones(input_v.size(0),1,1,1)
         y_fake = torch.zeros(input_v.size(0),1,1,1)
 
@@ -172,40 +185,36 @@ def train(training_data_loader, training_high_loader, model, epoch, joint=False)
             y_fake = y_fake.cuda()
         
         
-        # TV LOSS  weight 2
-        dn_ = model[0](input_v)    
-        hr_ = model[1](dn_)
-
-        TV_loss = 0.5 * tvloss(dn_) + 2 * step_weight * tvloss(hr_)
         optG.zero_grad()
-        TV_loss.backward(retain_graph=True)
-        # optG.step()
-        
-        patch_size = args.patch_size//args.scale[0]  
 
         ########### ordinray D lr ##############
         optD.zero_grad()
-        # optG.zero_grad()
 
         dn_ = model[0](input_v)
-        real_lr = model[3](bicubic)#[:,:,8:-8, 8:-8])
-        fake_lr = model[3](dn_.detach())#[:,:,8:-8, 8:-8])
-        D_hlr_loss_l = \
+        real_lr = model[3](bicubic)
+        fake_lr = model[3](dn_.detach())
+
+        D_lr_loss = \
                         criterionD(fake_lr, y_fake.expand_as(fake_lr)) \
                         + criterionD(real_lr, y_real.expand_as(real_lr))
 
-        (D_hlr_loss_l).backward(retain_graph=True)
+        (D_lr_loss).backward(retain_graph=True)
         optD.step()
         
 
 
-        fake_lr_g = model[3](dn_)#[:,:,8:-8,8:-8])#dn_)#, True)
-        # update G
-        DG_hlr_loss_l = \
+        fake_lr_g = model[3](dn_)
+        DG_lr_loss = \
                         criterionD(fake_lr_g, y_real.expand_as(fake_lr_g))
 
-        DG_hlr_loss_l.backward(retain_graph=True)
-        # optG.step()
+        DG_lr_loss.backward(retain_graph=True)
+
+        # TV lr loss
+        dn_ = model[0](input_v)    
+
+        TV_loss_lr = 0.5 * tvloss(dn_)
+        TV_loss_lr.backward(retain_graph=True)
+
         ######### cycle & idt lr ###########
 
         bi_l = model[0](bicubic)
@@ -222,36 +231,42 @@ def train(training_data_loader, training_high_loader, model, epoch, joint=False)
         cyc_loss_l = cyc_loss_l * 10
         cyc_loss_l.backward(retain_graph=True)
 
-        # optG.step()
-        
+        # update G(lr)
+        optG.step()
+
+        optG.zero_grad()
         ########### ordinray D hr ##############
         optD.zero_grad()
-        # optG.zero_grad()
 
         dn_ = model[0](input_v)
         hr_ = model[1](dn_)
 
 
-        real_hr = model[4](target[:,:,19:-19,19:-19])
-        fake_hr = model[4](hr_.detach()[:,:,19:-19,19:-19])
-        D_hlr_loss_h = \
+        real_hr = model[4](target)
+        fake_hr = model[4](hr_.detach())
+        D_hr_loss = \
                         (criterionD(fake_hr, y_fake.expand_as(fake_hr))\
                          + criterionD(real_hr, y_real.expand_as(real_hr)) )*step_weight
 
-        (D_hlr_loss_h).backward(retain_graph=True)
+        (D_hr_loss).backward(retain_graph=True)
         optD.step()
         
 
-        fake_hr_g = model[4](hr_[:,:,19:-19,19:-19])
-        # update G
-        DG_hlr_loss_h = \
+        fake_hr_g = model[4](hr_)
+        DG_hr_loss = \
                         criterionD(fake_hr_g, y_real.expand_as(fake_hr_g)) * step_weight
-        # optG.zero_grad()
 
-        DG_hlr_loss_h.backward(retain_graph=True)
-        # optG.step()
+        DG_hr_loss.backward(retain_graph=True)
+        
+        # TV hr loss
+
+        dn_ = model[0](input_v)    
+        hr_ = model[1](dn_)
+
+        TV_loss_hr = 2 * step_weight * tvloss(hr_)
+        TV_loss_hr.backward(retain_graph=True)
+
         ########## cycle & idt hr ###########        
-        # optG.zero_grad()
 
         bi_ = model[1](bicubic)
 
@@ -261,19 +276,18 @@ def train(training_data_loader, training_high_loader, model, epoch, joint=False)
 
         idt_loss = idt_loss * 5
         idt_loss.backward(retain_graph=True)
-        # optG.step()
         
         dn_ = model[0](input_v)
         hr_ = model[1](dn_)
         lr_ = model[2](hr_)
+
         cyc_loss = \
                    criterion(lr_, input_v) * step_weight
         cyc_loss = cyc_loss * 10
-
-        # optG.zero_grad()
         
         cyc_loss.backward()
 
+        # update G(hr)
         optG.step()
         
         
@@ -282,10 +296,11 @@ def train(training_data_loader, training_high_loader, model, epoch, joint=False)
             with torch.no_grad():
                 sr_ = model[1](model[0](input))
                 sr_r = model[2](sr_)
-                sr = model[2](target)# model[1](model[0](target))
-                srr = model[1](model[0](sr))# model[1](model[0](target))
+                sr = model[2](target)
+                srr = model[1](model[0](sr))
                 psnr_ = -20 *((sr_ - target).pow(2).mean().pow(0.5)).log10()
                 psnr = -20*((sr - input).pow(2).mean().pow(0.5)).log10()
+
             image = torch.cat([target[0], sr_[0], model[1](bicubic)[0]], -1)
             image_ = torch.cat([input[0], bicubic[0], sr[0], sr_r[0], model[0](input)[0], model[5](model[0](input))[0]],-1)
             utils.save_image(image, '_resulth.png')
@@ -293,7 +308,7 @@ def train(training_data_loader, training_high_loader, model, epoch, joint=False)
 
             print("===> Epoch[{}]({}/{}): Loss: idt {:.6f} {:.6f} cyc {:.6f}  {:.6f} D {:.6f} {:.6f}, G: {:.6f} {:.6f}, psnr_hr: {:.6f}, psnr_lr {:.6f} "\
                     .format(epoch, iteration, len(training_data_loader), idt_loss.data[0], idt_loss_l.data[0], cyc_loss.data[0], cyc_loss_l.data[0],\
-                        D_hlr_loss_h.data[0], D_hlr_loss_l.data[0], DG_hlr_loss_h.data[0], DG_hlr_loss_l.data[0], psnr_, psnr,))
+                        D_hr_loss.data[0], D_lr_loss.data[0], DG_hr_loss.data[0], DG_lr_loss.data[0], psnr_, psnr,))
 
 
 def test(test_data_loader, model, epoch):
@@ -309,30 +324,28 @@ def test(test_data_loader, model, epoch):
 
         with torch.no_grad():
             sr_ = model[1](model[0](input))
-            # sr_r = model[2](sr_)
-            sr = model[0](input)#model[2](target)# model[1](model[0](target))
-            # srr = model[1](model[0](sr))# model[1](model[0](target))
+            sr = model[0](input)
             utils.save_image(sr_, 'result/h_{}.png'.format(iteration))
             utils.save_image(sr, 'result/l_{}.png'.format(iteration))
-            psnr_ = calc_psnr_pixsh(sr_, target, args.scale[0], 1)#-20 *((sr_ - target).pow(2).mean().pow(0.5)/1).log10()
-            psnr = calc_psnr_pixsh(sr, input, args.scale[0], 1)#-20*((sr - input).pow(2).mean().pow(0.5)/1).log10()
+            psnr_ = calc_psnr_pixsh(sr_, target, args.scale[0], 1)
+            psnr = calc_psnr_pixsh(sr, input, args.scale[0], 1)
         avg += psnr#.data
         avg_ += psnr_#.data
 
         
-        print("===> ({}/{}): psnr a: {:.10f} b: {:.10f} "\
+        print("===> ({}/{}): psnr lr: {:.10f} hr: {:.10f} "\
                     .format(iteration, len(test_data_loader), psnr, psnr_,))
-    print('a', avg/n, 'b', avg_/n)
+    print('lr psnr', avg/n, 'hr psnr', avg_/n)
     with open('test.txt', 'a') as f:
-        f.write('{} {} {} {} {}\n'.format(epoch,'lr_retore', avg/n,'hr_restore', avg_/n))
+        f.write('{} {} {} {} {}\n'.format(epoch,'lr', avg/n,'hr', avg_/n))
 
 def to_numpy(var):
     return var.data.cpu().numpy()
 
         
-def save_checkpoint(model, epoch, scale=2):
+def save_checkpoint(model, optimizer, epoch, scale=2):
     model_out_path =  "model_total_{}.pth".format(scale)
-    state = {"epoch": epoch ,"model": model}
+    state = {"epoch": epoch ,"model": model, 'optimizer': optimizer}
     if not os.path.exists("checkpoint/"):
         os.makedirs("checkpoint/")
 
