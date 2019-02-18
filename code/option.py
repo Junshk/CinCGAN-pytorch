@@ -84,7 +84,7 @@ parser.add_argument('--epochs', type=int, default=400,
                     help='number of epochs to train')
 parser.add_argument('--resume', type=int, default=-1,
                     help='load the model from the specified epoch')
-parser.add_argument('--batch_size', type=int, default=4,
+parser.add_argument('--batch_size', type=int, default=16,
                     help='input batch size for training')
 parser.add_argument('--self_ensemble', action='store_true',
                     help='use self-ensemble method for test')
