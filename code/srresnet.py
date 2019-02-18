@@ -29,9 +29,9 @@ class _Residual_Block(nn.Module):
 
     def forward(self, x):
         identity_data = x
-        output = self.relu(self.in1(self.conv1(x)))
+        output = self.relu((self.conv1(x)))
         
-        output = self.relu(self.in2(self.conv2(output)))
+        output = self.relu((self.conv2(output)))
         output = torch.add(output,identity_data)
         return output 
 
