@@ -13,10 +13,9 @@ from option import args
 import copy
 import numpy as np
 import math
-# Training settings
 import scipy.misc
 import torch.nn.functional as F
-from srresnet import _NetG_DOWN, _NetD
+from srresnet import _NetG_DOWN, _NetD 
 import PIL
 from torchvision import transforms
 import matplotlib.pyplot as plt
@@ -30,10 +29,10 @@ print(opt)
 
 opt.cuda = not opt.cpu
 
-criterion1 = nn.L1Loss()#size_average=False)
-criterion = nn.MSELoss()#size_average=False)
+criterion1 = nn.L1Loss()
+criterion = nn.MSELoss()
 criterion_ = nn.MSELoss(size_average=False)
-criterionD= nn.MSELoss()#size_average=False)
+criterionD = nn.MSELoss()
 tvloss = TVLoss()
 
 torch.set_num_threads(4)
@@ -91,14 +90,16 @@ def main():
     model.append(DHR)
     model.append(GNO) #
     
+    cudnn.benchmark = True
+    
+    print("===> Setting GPU")
+    if opt.cuda:
+        model = model.cuda()
+    
     optG = torch.optim.Adam(list(model[0].parameters())+list(model[1].parameters())+ list(model[2].parameters())+list(model[5].parameters()), lr=opt.lr, weight_decay=0)
     optD = torch.optim.Adam(list(model[3].parameters())+list(model[4].parameters()), lr=opt.lr, weight_decay=0)
     
-    optimizer =  [optG, optD]
 
-    print(model)
-
-    cudnn.benchmark = True
     # optionally resume from a checkpoint
     opt.resume = 'model_total_{}.pth'.format(scale)
     if opt.resume:
@@ -107,7 +108,8 @@ def main():
             checkpoint = torch.load(opt.resume)
             opt.start_epoch = checkpoint["epoch"] + 1
             
-            optimizer = checkpoint['optimizer']
+            optG.load_state_dict(checkpoint['optimizer'][0])
+            optD.load_state_dict(checkpoint['optimizer'][1])
             model.load_state_dict(checkpoint["model"].state_dict())
         else:
             print("=> no checkpoint found at '{}'".format(opt.resume))
@@ -115,9 +117,8 @@ def main():
     step = 2 if opt.start_epoch > opt.epochs else 1
             
 
-    print("===> Setting GPU")
-    if opt.cuda:
-        model = model.cuda()
+
+    optimizer =  [optG, optD]
 
     # print("===> Setting Optimizer")
     
@@ -168,7 +169,7 @@ def train(training_data_loader, training_high_loader, model, optimizer, epoch, j
         input_v, target_v = batch0[0], batch0[1] # input domain dataset
         input, target, bicubic = batch1[0], batch1[1], batch1[2] # target domain dataset
 
-        # we do not know target_v and input
+        # we do not know target_v and input (unsupervised, unpair setting)
         # input : unknown input, target : high resolution image, bicubic : low resolution image downsampled by bicubic kernel
 
         y_real = torch.ones(input_v.size(0),1,1,1)
@@ -187,7 +188,7 @@ def train(training_data_loader, training_high_loader, model, optimizer, epoch, j
         
         optG.zero_grad()
 
-        ########### ordinray D lr ##############
+        ########### D lr ##############
         optD.zero_grad()
 
         dn_ = model[0](input_v)
@@ -235,7 +236,7 @@ def train(training_data_loader, training_high_loader, model, optimizer, epoch, j
         optG.step()
 
         optG.zero_grad()
-        ########### ordinray D hr ##############
+        ########### D hr ##############
         optD.zero_grad()
 
         dn_ = model[0](input_v)
@@ -301,10 +302,10 @@ def train(training_data_loader, training_high_loader, model, optimizer, epoch, j
                 psnr_ = -20 *((sr_ - target).pow(2).mean().pow(0.5)).log10()
                 psnr = -20*((sr - input).pow(2).mean().pow(0.5)).log10()
 
-            image = torch.cat([target[0], sr_[0], model[1](bicubic)[0]], -1)
-            image_ = torch.cat([input[0], bicubic[0], sr[0], sr_r[0], model[0](input)[0], model[5](model[0](input))[0]],-1)
-            utils.save_image(image, '_resulth.png')
-            utils.save_image(image_, '_resultl.png')
+            image = torch.cat([target, sr_, model[1](bicubic)], -2)
+            image_ = torch.cat([input, bicubic, sr, sr_r, model[0](input), model[5](model[0](input))], -2)
+            utils.save_image(image, 'hr_result.png')
+            utils.save_image(image_, 'lr_result.png')
 
             print("===> Epoch[{}]({}/{}): Loss: idt {:.6f} {:.6f} cyc {:.6f}  {:.6f} D {:.6f} {:.6f}, G: {:.6f} {:.6f}, psnr_hr: {:.6f}, psnr_lr {:.6f} "\
                     .format(epoch, iteration, len(training_data_loader), idt_loss.data[0], idt_loss_l.data[0], cyc_loss.data[0], cyc_loss_l.data[0],\
@@ -317,10 +318,11 @@ def test(test_data_loader, model, epoch):
     n = len(test_data_loader)
     model.eval()
     for iteration, batch in enumerate(test_data_loader):
-        input, target = batch[0], batch[1]
+        input, target, bicubic = batch[0], batch[1], batch[2]
         if opt.cuda: 
             target = target.cuda()/args.rgb_range
             input = input.cuda()/args.rgb_range
+            bicubic = bicubic.cuda()/args.rgb_range
 
         with torch.no_grad():
             sr_ = model[1](model[0](input))
@@ -328,7 +330,7 @@ def test(test_data_loader, model, epoch):
             utils.save_image(sr_, 'result/h_{}.png'.format(iteration))
             utils.save_image(sr, 'result/l_{}.png'.format(iteration))
             psnr_ = calc_psnr_pixsh(sr_, target, args.scale[0], 1)
-            psnr = calc_psnr_pixsh(sr, input, args.scale[0], 1)
+            psnr = calc_psnr_pixsh(sr, bicubic, args.scale[0], 1)
         avg += psnr#.data
         avg_ += psnr_#.data
 
@@ -345,7 +347,7 @@ def to_numpy(var):
         
 def save_checkpoint(model, optimizer, epoch, scale=2):
     model_out_path =  "model_total_{}.pth".format(scale)
-    state = {"epoch": epoch ,"model": model, 'optimizer': optimizer}
+    state = {"epoch": epoch ,"model": model, 'optimizer': [optimizer[0].state_dict(), optimizer[1].state_dict()]}
     if not os.path.exists("checkpoint/"):
         os.makedirs("checkpoint/")
 

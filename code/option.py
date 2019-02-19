@@ -92,7 +92,7 @@ parser.add_argument('--self_ensemble', action='store_true',
 # Optimization specifications
 parser.add_argument('--lr', type=float, default=2e-4,
                     help='learning rate')
-parser.add_argument('--lr_decay', type=int, default=100,
+parser.add_argument('--lr_decay', type=int, default=40,
                     help='learning rate decay per N epochs')
 parser.add_argument('--decay_type', type=str, default='step',
                     help='learning rate decay type')
