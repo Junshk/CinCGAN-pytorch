@@ -8,9 +8,33 @@ For super-resolution setting I refer to [EDSR (PyTorch)](https://github.com/thst
 This version is not good looking yet. 
 It will be updated later..
 
+--------------------------------------------------------------------------------------------
+
 ## Train
+
 * Dataset 
-Download DIV2K dataset from [here](https://data.vision.ee.ethz.ch/cvl/DIV2K/).
-800 training (~800) & 100 validation images (801~900)
-* Pretrain EDSR network. 
+
+  Download DIV2K dataset (NTIRE2018) from [here](https://competitions.codalab.org/competitions/18024#participate-get_data).
+  800 training (~800) & 100 validation images (801~900)
+
+* Pretrained EDSR network. 
+
+  Download pretrained EDSR from [here](https://cv.snu.ac.kr/research/EDSR/model_pytorch.tar)
+
+* Execution
+
+  After move to 'code' folder, type the following command.
+  	```bash
+  	python main.py --dir_data 'data_path'
+  	```
+  data_path directory should contains 'DIV2K' dataset folder.  
+
+## Test
+
+* Execution
+
+  After move to 'code' folder, type the following command.
+  	```bash
+  	python main.py --n_val 100 
+  	```
 

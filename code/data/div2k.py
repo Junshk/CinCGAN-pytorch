@@ -31,7 +31,7 @@ class DIV2K(srdata.SRData):
             for si, s in enumerate(self.scale):
                 list_lr[si].append(os.path.join(
                     self.dir_lr,
-                    'X{}/{}x{}{}'.format(s, filename, s, self.ext)
+                    '{}x{}m{}'.format(filename, s, self.ext)
                 ))
                 list_lrb[si].append(os.path.join(
                     self.dir_lrb,
@@ -43,7 +43,7 @@ class DIV2K(srdata.SRData):
     def _set_filesystem(self, dir_data):
         self.apath = dir_data + '/DIV2K'
         self.dir_hr = os.path.join(self.apath, 'DIV2K_train_HR')
-        self.dir_lr = os.path.join(self.apath, 'DIV2K_train_LR_unknown')
+        self.dir_lr = os.path.join(self.apath, 'DIV2K_train_LR_mild')
         self.dir_lrb = os.path.join(self.apath, 'DIV2K_train_LR_bicubic')
         self.ext = '.png'
 
