@@ -114,8 +114,11 @@ def main():
         else:
             print("=> no checkpoint found at '{}'".format(opt.resume))
             
+    # opt.start_epoch = 401
     step = 2 if opt.start_epoch > opt.epochs else 1
-            
+    
+    # model.load_state_dict(torch.load('backup.pt'))
+
 
 
     optimizer =  [optG, optD]
@@ -145,13 +148,13 @@ def main():
 
 def adjust_learning_rate(epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 10 epochs"""
-    lr = opt.lr * (opt.gamma ** ((epoch%opt.epochs) // opt.lr_decay))
+    lr = opt.lr * (opt.gamma ** ((epoch) // opt.lr_decay))
     return lr
 
 def train(training_data_loader, training_high_loader, model, optimizer, epoch, joint=False):
     
-    lr = adjust_learning_rate(epoch)
     step_weight = 1 if joint else 0
+    lr = adjust_learning_rate(epoch-step_weight*opt.epochs)
     
     optG, optD = optimizer
 
@@ -308,8 +311,8 @@ def train(training_data_loader, training_high_loader, model, optimizer, epoch, j
             utils.save_image(image_, 'lr_result.png')
 
             print("===> Epoch[{}]({}/{}): Loss: idt {:.6f} {:.6f} cyc {:.6f}  {:.6f} D {:.6f} {:.6f}, G: {:.6f} {:.6f}, psnr_hr: {:.6f}, psnr_lr {:.6f} "\
-                    .format(epoch, iteration, len(training_data_loader), idt_loss.data[0], idt_loss_l.data[0], cyc_loss.data[0], cyc_loss_l.data[0],\
-                        D_hr_loss.data[0], D_lr_loss.data[0], DG_hr_loss.data[0], DG_lr_loss.data[0], psnr_, psnr,))
+                    .format(epoch, iteration, len(training_data_loader), idt_loss.item(), idt_loss_l.item(), cyc_loss.item(), cyc_loss_l.item(),\
+                        D_hr_loss.item(), D_lr_loss.item(), DG_hr_loss.item(), DG_lr_loss.item(), psnr_, psnr,))
 
 
 def test(test_data_loader, model, epoch):

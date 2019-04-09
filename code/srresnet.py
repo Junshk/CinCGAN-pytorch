@@ -22,10 +22,10 @@ class _Residual_Block(nn.Module):
         super(_Residual_Block, self).__init__()
 
         self.conv1 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1)
-        self.in1 = nn.BatchNorm2d(64, affine=True)
+        # self.in1 = nn.BatchNorm2d(64, affine=True)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
         self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1,)
-        self.in2 = nn.BatchNorm2d(64, affine=True)
+       #  self.in2 = nn.BatchNorm2d(64, affine=True)
 
     def forward(self, x):
         identity_data = x
